@@ -1,0 +1,639 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  **WARNING** This template creates an Amazon MSK cluster, 4 EC2 instance, VPC with one public
+  and 3 private Subnets, a NATGateway, and an internet gateway. You will be billed for the AWS
+  resources used if you create a stack from this template.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Amazon MSK Cluster VPC details"
+        Parameters:
+          - VPCCidr
+          - PublicSubnet1Cidr
+          - PrivateSubnet1Cidr
+          - PrivateSubnet2Cidr
+          - PrivateSubnet3Cidr
+      - Label:
+          default: "MSK Admin EC2 instance configuration"
+        Parameters:
+          - LatestAmiId
+      - Label:
+          default: "MSK Cluster details"
+        Parameters:
+          - MSKKafkaVersion
+    ParameterLabels:
+      VPCCidr:
+        default: "VPC CIDR"
+      PublicSubnet1Cidr:
+        default: "First Public subnet CIDR"
+      PrivateSubnet1Cidr:
+        default: "First Private subnet CIDR"
+      PrivateSubnet2Cidr:
+        default: "Second Private subnet CIDR"
+      PrivateSubnet3Cidr:
+        default: "Third Private subnet CIDR"
+      LatestAmiId:
+        default: "EC2 latest AMI id"
+      MSKKafkaVersion:
+        default: "Kafka version for MSK Cluster"
+Parameters:
+  VPCCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+  PublicSubnet1Cidr:
+    Type: String
+    Default: '10.0.1.0/24'
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: '10.0.2.0/24'
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: '10.0.3.0/24'
+  PrivateSubnet3Cidr:
+    Type: String
+    Default: '10.0.4.0/24'
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  MSKKafkaVersion:
+    Type: String
+    Default: '2.8.1'
+    AllowedValues:
+      - '2.7.1'
+      - '2.7.2'
+      - '2.8.0'
+      - '2.8.1'
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !Ref VPCCidr
+      Tags:
+        - Key: 'Name'
+          Value: 'MSKVPC'
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+         Fn::Select:
+         - 0
+         - Fn::GetAZs: {Ref: 'AWS::Region'}
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: 'Name'
+          Value: 'PublicSubnet1'
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+         Fn::Select:
+         - 0
+         - Fn::GetAZs: {Ref: 'AWS::Region'}
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: 'Name'
+          Value: 'PrivateSubnet1'
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+         Fn::Select:
+         - 1
+         - Fn::GetAZs: {Ref: 'AWS::Region'}
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: 'Name'
+          Value: 'PrivateSubnet2'
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+         Fn::Select:
+         - 2
+         - Fn::GetAZs: {Ref: 'AWS::Region'}
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: 'Name'
+          Value: 'PrivateSubnet3'
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachement:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  NATEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachement
+    Properties: 
+      Domain: vpc
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt NATEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags: 
+        - Key: 'Name'
+          Value: 'MSKVPC-NATGateway'
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: 'Name'
+          Value: 'MSKVPC-PublicTable'
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachement
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+  PublicSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: 'Name'
+          Value: 'MSKVPC-PrivateTable'
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+  PrivateSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+  PrivateSubnetTwoRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+  PrivateSubnetThreeRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet3
+  ProducerApp1WriteRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  ProducerInstanceProfile1:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ProducerApp1WriteRole
+  ConsumerApp1ReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  ConsumerInstanceProfile1:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ConsumerApp1ReadRole
+  ConsumerApp2ReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  ConsumerInstanceProfile2:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ConsumerApp2ReadRole
+  KafkaClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group associated with Kafka producer and consumer EC2 instances
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - Description: all egress allowed
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+  MSKAdminInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  MSKAdminInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref MSKAdminInstanceRole
+  MSKAdminInstanceRolePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: MSKAdminInstanceRole
+    Properties:
+      PolicyName: MSKQuotaBlog-ManageMSKClusterPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - kafka-cluster:Connect
+              - kafka-cluster:CreateTopic
+              - kafka-cluster:DescribeTopic
+              - kafka-cluster:DeleteTopic
+              - kafka-cluster:AlterClusterDynamicConfiguration
+              - kafka-cluster:DescribeClusterDynamicConfiguration
+            Resource:
+              - !Sub arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:cluster/*
+              - !Sub arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:topic/*
+              - !Sub arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:group/*
+          - Effect: Allow
+            Action:
+              - kafka:ListClusters
+              - kafka:GetBootstrapBrokers
+            Resource: "*"
+      Roles:
+        - !Ref MSKAdminInstanceRole
+  MSKAdminInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group associated with MSK Admin EC2 instance
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - Description: all egress allowed
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+  MSKAdminInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      IamInstanceProfile: !Ref MSKAdminInstanceProfile
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds: [ !GetAtt MSKAdminInstanceSecurityGroup.GroupId ]
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: 'Name'
+          Value: 'MSKAdminInstance'
+      UserData:
+        Fn::Base64:
+          !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install python3.7 -y
+          yum install java-1.8.0-openjdk-devel -y
+          yum install git -y
+          yum erase awscli -y
+          yum install jq -y
+
+          cd /home/ec2-user
+          wget https://bootstrap.pypa.io/get-pip.py
+          su -c "python3.7 get-pip.py --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install boto3 --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install awscli --user" -s /bin/sh ec2-user
+
+          # install AWS CLI 2 - access with aws2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install -b /usr/local/bin/aws2
+          su -c "ln -s /usr/local/bin/aws2/aws ~/.local/bin/aws2" -s /bin/sh ec2-user
+
+          # Create dirs, get Apache Kafka 2.7.1 and unpack it
+          su -c "mkdir -p kafka271" -s /bin/sh ec2-user
+          cd /home/ec2-user
+
+          cat <<EOF>>config_iam.properties
+          security.protocol=SASL_SSL
+          sasl.mechanism=AWS_MSK_IAM
+          sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+          sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+          EOF
+
+          su -c "ln -s /home/ec2-user/kafka271 /home/ec2-user/kafka" -s /bin/sh ec2-user
+          cd kafka271
+          su -c "wget https://archive.apache.org/dist/kafka/2.7.1/kafka_2.13-2.7.1.tgz" -s /bin/sh ec2-user
+          su -c "tar -xzf kafka_2.13-2.7.1.tgz --strip 1" -s /bin/sh ec2-user
+          cd libs
+          su -c "wget https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.6/aws-msk-iam-auth-1.1.6-all.jar" -s /bin/sh ec2-user
+  MSKSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MSK Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - Description: allows 9098 (IAM) access from security group associated with MSK Admin Instance
+          IpProtocol: tcp
+          FromPort: 9098
+          ToPort: 9098
+          SourceSecurityGroupId: !Ref MSKAdminInstanceSecurityGroup
+      SecurityGroupEgress:
+        - Description: all egress allowed
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+  MSKSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allows traffic to flow among MSK cluster brokers
+      GroupId: !Ref MSKSecurityGroup
+      IpProtocol: -1
+      FromPort: -1
+      ToPort: -1
+      SourceSecurityGroupId: !Ref MSKSecurityGroup
+  AllowClientSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allows traffic from EC2 instances associated with KafkaClientSecurityGroup on port 9098 (IAM Auth Brokers endpoint)
+      GroupId: !Ref MSKSecurityGroup
+      IpProtocol: tcp
+      FromPort: 9098
+      ToPort: 9098
+      SourceSecurityGroupId: !Ref KafkaClientSecurityGroup
+  MSKClusterConfig:
+    Type: AWS::MSK::Configuration
+    Properties:
+      Name: !Sub "${AWS::StackName}-msk-cluster-config"
+      ServerProperties: |
+        auto.create.topics.enable=true
+        default.replication.factor=3
+        min.insync.replicas=2
+        num.io.threads=8
+        num.network.threads=5
+        num.partitions=1
+        num.replica.fetchers=2
+        replica.lag.time.max.ms=30000
+        socket.receive.buffer.bytes=102400
+        socket.request.max.bytes=104857600
+        socket.send.buffer.bytes=102400
+        unclean.leader.election.enable=false
+        zookeeper.session.timeout.ms=18000
+        delete.topic.enable=true
+        log.roll.ms = 604800000
+        allow.everyone.if.no.acl.found=true
+  MSKCluster:
+    Type: AWS::MSK::Cluster
+    Properties:
+      BrokerNodeGroupInfo:
+        ClientSubnets:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+          - !Ref PrivateSubnet3
+        InstanceType: kafka.t3.small
+        SecurityGroups: [ !GetAtt MSKSecurityGroup.GroupId ]
+        StorageInfo:
+          EBSStorageInfo:
+            VolumeSize: 100
+      ClusterName: !Sub "${AWS::StackName}-MSKCluster"
+      EncryptionInfo:
+        EncryptionInTransit:
+          ClientBroker: TLS
+          InCluster: true
+      ConfigurationInfo:
+        Arn: !Ref MSKClusterConfig
+        Revision: 1
+      ClientAuthentication:
+        Sasl:
+          Iam:
+            Enabled: true
+      EnhancedMonitoring: PER_TOPIC_PER_BROKER
+      KafkaVersion: !Ref MSKKafkaVersion
+      NumberOfBrokerNodes: 3
+  ProducerInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      IamInstanceProfile: !Ref ProducerInstanceProfile1
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroupIds: [ !GetAtt KafkaClientSecurityGroup.GroupId ]
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: 'Name'
+          Value: 'ProducerApp-1'
+      UserData:
+        Fn::Base64:
+          !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install python3.7 -y
+          yum install java-1.8.0-openjdk-devel -y
+          yum install nmap-ncat -y
+          yum install git -y
+          yum erase awscli -y
+          yum install jq -y
+          amazon-linux-extras install docker -y
+          service docker start
+          usermod -a -G docker ec2-user
+
+          cd /home/ec2-user
+          wget https://bootstrap.pypa.io/get-pip.py
+          su -c "python3.7 get-pip.py --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install boto3 --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install awscli --user" -s /bin/sh ec2-user
+
+          # install AWS CLI 2 - access with aws2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install -b /usr/local/bin/aws2
+          su -c "ln -s /usr/local/bin/aws2/aws ~/.local/bin/aws2" -s /bin/sh ec2-user
+
+          # Create dirs, get Apache Kafka 2.7.1 and unpack it
+          su -c "mkdir -p kafka271" -s /bin/sh ec2-user
+          cd /home/ec2-user
+
+          cat <<EOF>>config_iam.properties
+          security.protocol=SASL_SSL
+          sasl.mechanism=AWS_MSK_IAM
+          sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+          sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+          EOF
+
+          ln -s /home/ec2-user/kafka271 /home/ec2-user/kafka
+          cd kafka271
+          su -c "wget https://archive.apache.org/dist/kafka/2.7.1/kafka_2.13-2.7.1.tgz" -s /bin/sh ec2-user
+          su -c "tar -xzf kafka_2.13-2.7.1.tgz --strip 1" -s /bin/sh ec2-user
+          cd libs
+          su -c "wget https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.6/aws-msk-iam-auth-1.1.6-all.jar" -s /bin/sh ec2-user
+  ConsumerInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      IamInstanceProfile: !Ref ConsumerInstanceProfile1
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroupIds: [ !GetAtt KafkaClientSecurityGroup.GroupId ]
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: 'Name'
+          Value: 'ConsumerApp-1'
+      UserData:
+        Fn::Base64:
+          !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install python3.7 -y
+          yum install java-1.8.0-openjdk-devel -y
+          yum install nmap-ncat -y
+          yum install git -y
+          yum erase awscli -y
+          yum install jq -y
+          amazon-linux-extras install docker -y
+          service docker start
+          usermod -a -G docker ec2-user
+
+          cd /home/ec2-user
+          wget https://bootstrap.pypa.io/get-pip.py
+          su -c "python3.7 get-pip.py --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install boto3 --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install awscli --user" -s /bin/sh ec2-user
+
+          # install AWS CLI 2 - access with aws2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install -b /usr/local/bin/aws2
+          su -c "ln -s /usr/local/bin/aws2/aws ~/.local/bin/aws2" -s /bin/sh ec2-user
+
+          # Create dirs, get Apache Kafka 2.7.1 and unpack it
+          su -c "mkdir -p kafka271" -s /bin/sh ec2-user
+          cd /home/ec2-user
+
+          cat <<EOF>>config_iam.properties
+          security.protocol=SASL_SSL
+          sasl.mechanism=AWS_MSK_IAM
+          sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+          sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+          EOF
+
+          ln -s /home/ec2-user/kafka271 /home/ec2-user/kafka
+          cd kafka271
+          su -c "wget https://archive.apache.org/dist/kafka/2.7.1/kafka_2.13-2.7.1.tgz" -s /bin/sh ec2-user
+          su -c "tar -xzf kafka_2.13-2.7.1.tgz --strip 1" -s /bin/sh ec2-user
+          cd libs
+          su -c "wget https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.6/aws-msk-iam-auth-1.1.6-all.jar" -s /bin/sh ec2-user
+  ConsumerInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      IamInstanceProfile: !Ref ConsumerInstanceProfile2
+      SubnetId: !Ref PrivateSubnet3
+      SecurityGroupIds: [ !GetAtt KafkaClientSecurityGroup.GroupId ]
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: 'Name'
+          Value: 'ConsumerApp-2'
+      UserData:
+        Fn::Base64:
+          !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install python3.7 -y
+          yum install java-1.8.0-openjdk-devel -y
+          yum install nmap-ncat -y
+          yum install git -y
+          yum erase awscli -y
+          yum install jq -y
+          amazon-linux-extras install docker -y
+          service docker start
+          usermod -a -G docker ec2-user
+
+          cd /home/ec2-user
+          wget https://bootstrap.pypa.io/get-pip.py
+          su -c "python3.7 get-pip.py --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install boto3 --user" -s /bin/sh ec2-user
+          su -c "/home/ec2-user/.local/bin/pip3 install awscli --user" -s /bin/sh ec2-user
+
+          # install AWS CLI 2 - access with aws2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install -b /usr/local/bin/aws2
+          su -c "ln -s /usr/local/bin/aws2/aws ~/.local/bin/aws2" -s /bin/sh ec2-user
+
+          # Create dirs, get Apache Kafka 2.7.1 and unpack it
+          su -c "mkdir -p kafka271" -s /bin/sh ec2-user
+          cd /home/ec2-user
+
+          cat <<EOF>>config_iam.properties
+          security.protocol=SASL_SSL
+          sasl.mechanism=AWS_MSK_IAM
+          sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+          sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+          EOF
+
+          ln -s /home/ec2-user/kafka271 /home/ec2-user/kafka
+          cd kafka271
+          su -c "wget https://archive.apache.org/dist/kafka/2.7.1/kafka_2.13-2.7.1.tgz" -s /bin/sh ec2-user
+          su -c "tar -xzf kafka_2.13-2.7.1.tgz --strip 1" -s /bin/sh ec2-user
+          cd libs
+          su -c "wget https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.6/aws-msk-iam-auth-1.1.6-all.jar" -s /bin/sh ec2-user
+Outputs:
+  MSKClusterArn:
+    Description: MSK Cluster Arn
+    Value: !Ref MSKCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-MSKClusterArn"
+  ProducerApp1WriteRoleARN:
+    Description: ProducerApp-1 App IAM role ARN
+    Value: !GetAtt ProducerApp1WriteRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ProducerApp1WriteRoleARN"
+  ConsumerApp1ReadRoleARN:
+    Description: ConsumerApp-1 App IAM role ARN
+    Value: !GetAtt ConsumerApp1ReadRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ConsumerApp1ReadRoleARN"
+  ConsumerApp2ReadRoleARN:
+    Description: ConsumerApp-2 App IAM role ARN
+    Value: !GetAtt ConsumerApp2ReadRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ConsumerApp2ReadRoleARN"
