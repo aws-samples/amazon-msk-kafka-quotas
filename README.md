@@ -1,11 +1,6 @@
-## My Project
+## amazon-msk-kafka-quota blog
 
-TODO: Fill this README out!
-
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
+This repository contains sample code for Kafka producer and consumer client applications that demonstrate how to use Kafka quotas with Amazon MSK, as explained in the following blog post. Follow the step-by-step instructions provided in the following AWS blog to test Kafka quotas using this repository.
 
 ## Security
 

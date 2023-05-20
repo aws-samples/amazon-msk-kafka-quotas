@@ -117,9 +117,10 @@ public class KafkaProducer {
             else throw new RuntimeException("Producer type must be either 'sync' or 'async'");
         }
     }
+    
     /**
-     * Starts the Kafka producer. First, it assumes an IAM role in the Shared Services Account provided as a command line argument.
-     * The specified number of events are then sent to the Kafka topic specified as a command line argument, by default topic-A.
+     * This starts the Kafka producer in a Sync mode. In the first step, it assumes the IAM role specified as a command-line argument. 
+     * A specified number of messages are then sent to the Kafka topic specified as the command line argument, by default Topic-A.
      * @return Nothing
      */
     private void startProducerSync() throws InterruptedException, ExecutionException {
@@ -143,8 +144,8 @@ public class KafkaProducer {
     }
 
     /**
-     * Starts the Kafka producer. First, it assumes an IAM role in the Shared Services Account provided as a command line argument.
-     * The specified number of events are then sent to the Kafka topic specified as a command line argument, by default topic-A.
+     * This starts the Kafka producer in a ASync mode. In the first step, it assumes the IAM role specified as a command-line argument. 
+     * A specified number of messages are then sent to the Kafka topic specified as the command line argument, by default Topic-A.
      * @return Nothing
      */
     private void startProducerAsync() throws InterruptedException {
@@ -161,6 +162,9 @@ public class KafkaProducer {
             printProducerQuotaMetrics(producer);
         }
     }
+    /**
+     * This prints Kafka client metrics on the console and stores metrics data as custom metrics in CloudWatch.
+     */
     private void printProducerQuotaMetrics(org.apache.kafka.clients.producer.KafkaProducer<String, String> producer){
         if(printProducerQuotaMetrics != null && printProducerQuotaMetrics.trim().equalsIgnoreCase("N"))
             return;
@@ -214,9 +218,10 @@ public class KafkaProducer {
         props.put(SaslConfigs.SASL_CLIENT_CALLBACK_HANDLER_CLASS, "software.amazon.msk.auth.iam.IAMClientCallbackHandler");
         return props;
     }
+   
     /**
-     * Assumes MSK Write IAM role from Shared Services Account provided as command line argument.
-     * It uses producer's secret role session name while calling assumeRole API.
+     * Assumes MSK Read IAM role specified as command-line argument. 
+     * When calling the assumeRole API, it uses the producers's secret role session name.
      * @return Nothing
      */
     private void assumeMSKWriteRole() {

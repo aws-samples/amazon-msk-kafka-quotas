@@ -106,8 +106,8 @@ public class KafkaConsumer {
         stsClient = StsClient.builder().region(region).build();
     }
     /**
-     * Starts the Kafka consumer. Prior to reading events from the Kafka topic,
-     * it assumes an IAM role in the Shared Services Account provided as a command line argument.
+     * This starts the Kafka consumer. In order to read events from the Kafka topic, 
+     * it first assumes an IAM role specified as a command-line argument.
      * @return Nothing
      */
     public void startConsumer() {
@@ -126,6 +126,9 @@ public class KafkaConsumer {
             }
         }
     }
+    /**
+     * This prints Kafka client metrics on the console and stores metrics data as custom metrics in CloudWatch.
+     */
     private void printConsumerQuotaMetrics(org.apache.kafka.clients.consumer.KafkaConsumer<String, String> consumer){
         if(printConsumerQuotaMetrics != null && printConsumerQuotaMetrics.trim().equalsIgnoreCase("N"))
             return;
@@ -174,8 +177,8 @@ public class KafkaConsumer {
         return props;
     }
     /**
-     * Assumes MSK Read IAM role from Shared Services Account provided as command line argument.
-     * It uses consumer's secret role session name while calling assumeRole API.
+     * Assumes MSK Read IAM role specified as command-line argument. 
+     * When calling the assumeRole API, it uses the consumer's secret role session name.
      * @return Nothing
      */
     private void assumeMSKReadRole() {
